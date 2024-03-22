@@ -30,7 +30,7 @@ def spawnTerminal(port: str, baudrate: int, flow: bool) -> Terminal:
     return terminal
 
 
-def ptyProcess(process, stdin, stdout) -> None:
+def ptyProcess(process: str, stdin: int, stdout: int) -> None:
     scriptFile = NamedTemporaryFile(delete=True)
     with open(scriptFile.name, 'w') as f:
         f.write("#!/bin/bash\n")
@@ -43,7 +43,7 @@ def ptyProcess(process, stdin, stdout) -> None:
     os.dup2(stdout, 1)
     os.dup2(stdout, 2)
     os.putenv("TERM", "vt100")
-    pty.spawn(scriptFile.name) 
+    pty.spawn(scriptFile.name)
 
 
 def main(command: str, port: str, baudrate: int, flow: bool) -> int:
@@ -67,7 +67,7 @@ def main(command: str, port: str, baudrate: int, flow: bool) -> int:
         if not p.is_alive():
             print("Finished monitoring!")
             break
-        
+
         # Now, check for if there's something to do.
         r, w, e = select.select([stdoutr], [], [], 0)
         if stdoutr in r:
