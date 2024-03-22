@@ -16,6 +16,9 @@ def spawnTerminal(port: str, baudrate: int, flow: bool) -> Terminal:
 
     while True:
         try:
+            # The serial terminal class will only return successfully if the terminal
+            # is awake and responding properly, including a terminal identification and
+            # okay response.
             terminal = SerialTerminal(port, baudrate, flowControl=flow)
             print("SUCCESS!")
 
@@ -27,10 +30,14 @@ def spawnTerminal(port: str, baudrate: int, flow: bool) -> Terminal:
             print(".", end="")
             sys.stdout.flush()
 
+    # We have a handle to an actual terminal here.
     return terminal
 
 
 def ptyProcess(process: str, stdin: int, stdout: int) -> None:
+    # The pty module only takes processes to run. If we want to take an arbitrary shell
+    # command to run instead, then we need to write that to a temporary script, chmod
+    # it to writeable, and then pass that script to pty. So, we do that here.
     scriptFile = NamedTemporaryFile(delete=True)
     with open(scriptFile.name, 'w') as f:
         f.write("#!/bin/bash\n")
@@ -39,6 +46,9 @@ def ptyProcess(process: str, stdin: int, stdout: int) -> None:
     os.chmod(scriptFile.name, 0o777)
     scriptFile.file.close()
 
+    # Hook our own stdin/stdout/stderr to the pipes we were provided, since pty just
+    # connects the spawned process to these. This kills this process's ability to output
+    # its own errors, so let's hope nothing ever crashes here.
     os.dup2(stdin, 0)
     os.dup2(stdout, 1)
     os.dup2(stdout, 2)
@@ -47,7 +57,7 @@ def ptyProcess(process: str, stdin: int, stdout: int) -> None:
 
 
 def main(command: str, port: str, baudrate: int, flow: bool) -> int:
-    # First, render the current page to the display.
+    # First, contact the terminal and then clear it.
     terminal = spawnTerminal(port, baudrate, flow)
     terminal.reset()
 
@@ -55,26 +65,33 @@ def main(command: str, port: str, baudrate: int, flow: bool) -> int:
     (stdinr, stdinw) = os.pipe()
     (stdoutr, stdoutw) = os.pipe()
 
-    # Now, fork off a process for the pty.
+    # Now, fork off a process for the pty to run the command without messing
+    # up our own terminal output. Also, we want to be able to poll the terminal
+    # so we need to be in a different thread/process anyway.
     p = Process(target=ptyProcess, args=(command, stdinr, stdoutw))
     p.start()
 
     # Now, loop forever reading/writing from the terminal to the stdin/stdout.
     print("Starting monitoring!")
     while True:
-        # First, check if we're done.
+        # First, check if we're done. If join succeeds then we won't be alive, and we should
+        # bail out of the loop. Most likely the user exited the process on the terminal.
         p.join(timeout=0)
         if not p.is_alive():
             print("Finished monitoring!")
             break
 
-        # Now, check for if there's something to do.
+        # Now, check for if there's something to do by seeing if there's anything to read. We
+        # select so we don't get stuck polling forever if the command we're running hasn't output
+        # anything.
         r, w, e = select.select([stdoutr], [], [], 0)
         if stdoutr in r:
             data = os.read(stdoutr, 128)
             terminal.interface.write(data)
 
         while True:
+            # Now, while we get more than zero bytes back from the terminal, relay those to the
+            # process we spawned.
             val = terminal.interface.read()
             if val:
                 # Get rid of \r\n that the terminal sends on "RETURN", make it act the same
@@ -84,6 +101,7 @@ def main(command: str, port: str, baudrate: int, flow: bool) -> int:
             else:
                 break
 
+    # Clean up, clean up, everybody everywhere! Clean up, clean up, everybody do your share!
     os.close(stdinr)
     os.close(stdinw)
     os.close(stdoutr)
