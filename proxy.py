@@ -1,12 +1,15 @@
 import argparse
 import os
+import platform
 import pty
 import select
 import sys
 import time
 
 from multiprocessing import Process
+from threading import Thread
 from tempfile import NamedTemporaryFile
+from typing import Union
 from vtpy import SerialTerminal, Terminal, TerminalException
 
 
@@ -68,7 +71,12 @@ def main(command: str, port: str, baudrate: int, flow: bool) -> int:
     # Now, fork off a process for the pty to run the command without messing
     # up our own terminal output. Also, we want to be able to poll the terminal
     # so we need to be in a different thread/process anyway.
-    p = Process(target=ptyProcess, args=(command, stdinr, stdoutw))
+    p: Union[Process, Thread]
+    if platform.system() == "Darwin":
+        # Forking on OSX seems broken, the pipes above aren't available in the subprocess.
+        p = Thread(target=ptyProcess, args=(command, stdinr, stdoutw))
+    else:
+        p = Process(target=ptyProcess, args=(command, stdinr, stdoutw))
     p.start()
 
     # Now, loop forever reading/writing from the terminal to the stdin/stdout.
