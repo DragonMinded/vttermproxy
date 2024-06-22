@@ -1,3 +1,1 @@
 vtpy @ git+https://github.com/DragonMinded/vtpy.git
-mypy
-flake8
